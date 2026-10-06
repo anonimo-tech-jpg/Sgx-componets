@@ -1,0 +1,70 @@
+getgenv().tocarMusica = function(id)
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local RE = ReplicatedStorage:WaitForChild("RE")
+    
+    -- Função auxiliar para achar remotes mesmo se o Brookhaven mudar os números falsos do nome
+    local function findRemote(possibleNames)
+        for _, child in ipairs(RE:GetChildren()) do
+            for _, name in ipairs(possibleNames) do
+                if child.Name == name or child.Name:gsub("%d", "") == name:gsub("%d", "") then
+                    return child
+                end
+            end
+        end
+        return nil
+    end
+
+    -- 1. Rádio de Mão (Boombox)
+    local radioRemote = findRemote({"PlayerToolEvent", "1Player1Tool1Event1"})
+    if radioRemote then
+        radioRemote:FireServer(unpack({"ToolMusicText", id}))
+    end
+    
+    -- 2. Casa
+    local casaRemote = findRemote({"1Player1sHous1e", "PlayersHouse"})
+    if casaRemote then
+        casaRemote:FireServer(unpack({"PickHouseMusicText", id}))
+    end
+
+    -- 3. Carro, Helicóptero, Drone e Gramofone (Todos usam o mesmo controle de Veículo no Brookhaven)
+    -- O argumento correto do Brookhaven para carros/aéreos comuns é "PickingCarMusicText"
+    local carroRemote = findRemote({"1Player1sCa1r", "PlayersCar"})
+    if carroRemote then
+        -- Envia para o Carro comum / Veículo Aéreo
+        carroRemote:FireServer(unpack({"PickingCarMusicText", id}))
+        -- Envia o comando secundário para Aeronaves/Helicópteros específicos do Brookhaven
+        carroRemote:FireServer(unpack({"Picking", id}))
+        -- Envia o comando para o Gramofone (WickedGramophone) se estiver ativo
+        carroRemote:FireServer(unpack({"WickedGramophoneMusicSelect", id}))
+    end
+
+    -- 4. Patinete / Scooter / Skate
+    local scooterRemote = findRemote({"1NoMoto1rVehicle1s", "NoMotorVehicles"})
+    if scooterRemote then
+        scooterRemote:FireServer(unpack({"PickingScooterMusicText", id}))
+    end
+
+    -- 5. Cavalo (Corrigido para usar a chamada exata do sistema do Brookhaven)
+    local cavaloRemote = findRemote({"1Hor1seRemo1te", "HorseRemote"})
+    if cavaloRemote then
+        cavaloRemote:FireServer(unpack({"PickingHorseMusicText", id}))
+    end
+
+    -- 6. Adereços do Mapa (Props como caixas de som de festa, palcos, etc)
+    local propsRemote = findRemote({"1Pro1ps", "Props"})
+    if propsRemote then
+        propsRemote:FireServer(unpack({"PropMusicText", id}))
+    end
+end
+
+
+getgenv().isValidMusicId = function(value)
+    return value and value ~= "" 
+    and value ~= "Option 1" 
+    and not value:match("novas musica adds") 
+    and not value:match("musica brasil") 
+    and not value:match("musica do meu interece") 
+    and not value:match("musica dls por elas") 
+    and not value:match("meme abaixo") 
+    and not value:match("estourada")
+end
