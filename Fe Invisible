@@ -3,25 +3,94 @@ repeat task.wait() until game.Players.LocalPlayer
 local LocalPlayer = game.Players.LocalPlayer
 local IsInvisible = false
 local MainGui = nil
+local DoingMove = false
 
--- Função para atualizar a transparência em tempo real
+-- Serviços
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+-- Função para atualizar a transparência
 local function UpdateTransparency()
 	local Character = LocalPlayer.Character
 	if not Character then return end
-
 	local transparency = IsInvisible and 0.5 or 0
-
 	for _, descendant in pairs(Character:GetDescendants()) do
 		if descendant:IsA("BasePart") then
-			-- Não mexemos na HumanoidRootPart para não bugar o movimento
 			if descendant.Name ~= "HumanoidRootPart" then
 				descendant.Transparency = transparency
 			end
-		elseif descendant:IsA("Decal") then -- Isso esconde rostos
+		elseif descendant:IsA("Decal") then
 			descendant.Transparency = transparency
 		end
 	end
 end
+
+-- =====================================================
+-- FUNÇÃO DE MOVIMENTO FORÇADO (combinação forte)
+-- =====================================================
+local function AutoMove()
+	local Character = LocalPlayer.Character
+	if not Character then return end
+
+	local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+	local Root = Character:FindFirstChild("HumanoidRootPart")
+	if not Humanoid or not Root then return end
+
+	DoingMove = true
+
+	-- 1) Força estado de pulo
+	pcall(function()
+		Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+	end)
+
+	-- 2) Aplica força pra cima via BodyVelocity (garante movimento real)
+	local bv = Instance.new("BodyVelocity")
+	bv.MaxForce = Vector3.new(0, 1e5, 0)
+	bv.Velocity = Vector3.new(0, -1, 0)
+	bv.Parent = Root
+
+	-- 3) Toca emote curto (replicação extra pro servidor)
+	pcall(function()
+		local Animator = Humanoid:FindFirstChildOfClass("Animator")
+		if not Animator then
+			Animator = Instance.new("Animator")
+			Animator.Parent = Humanoid
+		end
+		local anim = Instance.new("Animation")
+		anim.AnimationId = "rbxassetid://507771019" -- dança padrão Roblox
+		local track = Animator:LoadAnimation(anim)
+		track:Play()
+		task.wait(0.25)
+		track:Stop()
+		anim:Destroy()
+	end)
+
+	task.wait(0.1)
+	bv:Destroy()
+	DoingMove = false
+end
+-- =====================================================
+
+-- =====================================================
+-- FUNÇÃO DO TELEPORTE
+-- =====================================================
+local function DoTeleport()
+	local Character = LocalPlayer.Character
+	if not Character then return end
+	local root = Character:FindFirstChild("HumanoidRootPart")
+	local hum = Character:FindFirstChildOfClass("Humanoid")
+	if not root or not hum then return end
+
+	local OriginalCFrame = root.CFrame
+	local DownCFrame = OriginalCFrame * CFrame.new(0, -1000, 0)
+
+	root.CFrame = DownCFrame
+	hum.CameraOffset = (DownCFrame:ToObjectSpace(OriginalCFrame)).Position
+	RunService.RenderStepped:Wait()
+	root.CFrame = OriginalCFrame
+	hum.CameraOffset = Vector3.new(0, 0, 0)
+end
+-- =====================================================
 
 -- Criar a GUI do Botão
 local function CreateButtonGUI()
@@ -32,22 +101,94 @@ local function CreateButtonGUI()
 	ScreenGui.Name = "InvisButtonGui"
 	ScreenGui.ResetOnSpawn = false
 	ScreenGui.Enabled = false
+	ScreenGui.IgnoreGuiInset = true
+	
+	ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-	ToggleButton.Size = UDim2.new(0, 80, 0, 30)
-	ToggleButton.Position = UDim2.new(0, 837, 0, -37)
+	ToggleButton.Size = UDim2.new(0, 90, 0, 35)
+	ToggleButton.Position = UDim2.new(1, -110, 0, 50)
+	ToggleButton.AnchorPoint = Vector2.new(0, 0)
 	ToggleButton.Text = "Invisível"
 	ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	ToggleButton.TextScaled = true
+	ToggleButton.Font = Enum.Font.GothamBold
 	ToggleButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+	ToggleButton.BorderSizePixel = 0
+	ToggleButton.Active = true
 	ToggleButton.Parent = ScreenGui
 
 	UICorner.CornerRadius = UDim.new(0, 10)
 	UICorner.Parent = ToggleButton
 
-	-- Função de Ativar/Desativar
+	-- ========== SISTEMA DE ARRASTAR ==========
+	local dragging = false
+	local dragInput, dragStart, startPos
+
+	local function update(input)
+		local delta = input.Position - dragStart
+		ToggleButton.Position = UDim2.new(
+			startPos.X.Scale,
+			startPos.X.Offset + delta.X,
+			startPos.Y.Scale,
+			startPos.Y.Offset + delta.Y
+		)
+	end
+
+	ToggleButton.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = ToggleButton.Position
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					dragging = false
+				end
+			end)
+		end
+	end)
+
+	ToggleButton.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement
+		or input.UserInputType == Enum.UserInputType.Touch then
+			dragInput = input
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and input == dragInput then
+			update(input)
+		end
+	end)
+	-- =========================================
+
+	-- =====================================================
+	-- CLIQUE DO BOTÃO
+	-- =====================================================
 	ToggleButton.MouseButton1Click:Connect(function()
-		IsInvisible = not IsInvisible
-		UpdateTransparency() -- Aplica a transparência na hora
-		ToggleButton.BackgroundColor3 = IsInvisible and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+		if IsInvisible then
+			-- ==== ESTAVA INVISÍVEL → VAI FICAR VISÍVEL ====
+			task.spawn(function()
+				DoTeleport()
+				task.wait(0.05)
+				IsInvisible = false
+				AutoMove()
+				task.wait(0.05)
+				UpdateTransparency()
+				ToggleButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+				ToggleButton.Text = "Invisível"
+			end)
+		else
+			-- ==== ESTAVA VISÍVEL → VAI FICAR INVISÍVEL ====
+			IsInvisible = true
+			UpdateTransparency()
+			ToggleButton.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+			ToggleButton.Text = "Visível"
+			task.spawn(function()
+				task.wait(0.05)
+				AutoMove()
+			end)
+		end
 	end)
 
 	ScreenGui.Parent = game:GetService("CoreGui")
@@ -56,27 +197,21 @@ end
 
 MainGui = CreateButtonGUI()
 
--- Loop principal (Consertado para trocas de skin)
-game:GetService("RunService").Heartbeat:Connect(function()
-	if LocalPlayer.Character then
-		-- Se estiver invisível, garante que peças novas (da skin) fiquem invisíveis
-		if IsInvisible then
-			UpdateTransparency()
-
-			local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-			local hum = LocalPlayer.Character:FindFirstChild("Humanoid")
-			if root and hum then
-				local OriginalCFrame = root.CFrame
-				local DownCFrame = OriginalCFrame * CFrame.new(0, -1000, 0)
-
-				root.CFrame = DownCFrame
-				hum.CameraOffset = (DownCFrame:ToObjectSpace(OriginalCFrame)).Position
-
-				game:GetService("RunService").RenderStepped:Wait()
-
-				root.CFrame = OriginalCFrame
-				hum.CameraOffset = Vector3.new(0, 0, 0)
-			end
+-- Loop principal (mantém invisibilidade)
+RunService.Heartbeat:Connect(function()
+	if DoingMove then return end
+	if LocalPlayer.Character and IsInvisible then
+		UpdateTransparency()
+		local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+		local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+		if root and hum then
+			local OriginalCFrame = root.CFrame
+			local DownCFrame = OriginalCFrame * CFrame.new(0, -1000, 0)
+			root.CFrame = DownCFrame
+			hum.CameraOffset = (DownCFrame:ToObjectSpace(OriginalCFrame)).Position
+			RunService.RenderStepped:Wait()
+			root.CFrame = OriginalCFrame
+			hum.CameraOffset = Vector3.new(0, 0, 0)
 		end
 	end
-end)
+end) 
